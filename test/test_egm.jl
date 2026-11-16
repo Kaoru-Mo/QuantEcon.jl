@@ -10,8 +10,10 @@
     end
 
     @testset "power_grid" begin
-        g_egm = power_grid(16.0, 5, 2.0)
+        g_egm = power_grid(16.0, 5; k=2.0)
         @test g_egm ≈ [0.0, 1.0, 4.0, 9.0, 16.0]
+        g2_egm = power_grid(3.0, 3; k=1.0, s_min=-1.0)
+        @test g2_egm ≈ [-1.0, 1.0, 3.0]
     end
 
     @testset "constructor checks" begin
@@ -20,6 +22,11 @@
             u_prime_inv=f_egm, Γ=(s, z, ϵ) -> s, Γ_s=(s, z, ϵ) -> 1.0,
             s_grid=[1.0, 0.5])
         @test_throws ArgumentError ifp_problem(; R=1.1, β=0.96)
+        @test_throws ArgumentError ifp_problem(; b=1.0, s_grid=0.0:0.1:16.0)
+        # income 0.5 cannot repay the interest on a debt of 60 at r = 0.01
+        p_loose_egm = ifp_problem(; γ=1.0, b=60.0,
+            mc=MarkovChain([0.6 0.4; 0.05 0.95], log.([0.5, 1.0])))
+        @test_throws ArgumentError solve(p_loose_egm)
     end
 
     @testset "optimal growth with log utility" begin
@@ -85,6 +92,69 @@
         sol_egm = solve(p_egm)
         @test sol_egm.converged
         @test all(issorted(sol_egm.a[:, j]) for j in 1:2)
+    end
+
+    # Largest relative Euler residual at interior choices, and whether the
+    # Euler inequality holds where the constraint binds
+    function euler_check_egm(p, sol, xs)
+        s_min = p.s_grid[1]
+        worst, ineq_ok = 0.0, true
+        for j in eachindex(p.z_vals), x in xs
+            c = sol(x, j)
+            s = x - c
+            rhs = 0.0
+            for k in eachindex(p.z_vals), l in eachindex(p.ϵ_vals)
+                ϵ = p.ϵ_vals[l]
+                rhs += p.Π[j, k] * p.ϵ_weights[l] * p.Γ_s(s, p.z_vals[k], ϵ) *
+                       p.u_prime(sol(p.Γ(s, p.z_vals[k], ϵ), k))
+            end
+            rhs *= p.β
+            lhs = p.u_prime(c)
+            if s > s_min + 1e-10
+                worst = max(worst, abs(lhs - rhs) / lhs)
+            else
+                ineq_ok = ineq_ok && lhs >= rhs * (1 - 1e-9)
+            end
+        end
+        return worst, ineq_ok
+    end
+
+    @testset "borrowing limit" begin
+        for b_egm in (1.0, 3.0)
+            mc_b_egm = MarkovChain([0.6 0.4; 0.05 0.95], log.([0.5, 1.0]))
+            p_egm = ifp_problem(; γ=1.0, mc=mc_b_egm, b=b_egm,
+                                s_grid=power_grid(16.0, 200; s_min=-b_egm))
+            sol_egm = solve(p_egm)
+            @test sol_egm.converged
+            @test all(sol_egm.a[1, :] .== -b_egm)
+            # spend down to the limit where the constraint binds
+            x_low_egm = (-b_egm + sol_egm.a[2, 1]) / 2
+            @test sol_egm(x_low_egm, 1) ≈ x_low_egm + b_egm
+            worst_egm, ineq_ok_egm = euler_check_egm(
+                p_egm, sol_egm, range(-b_egm + 0.05, 15.0, length=300))
+            @test worst_egm < 1e-3
+            @test ineq_ok_egm
+        end
+    end
+
+    @testset "two IID shocks given as tuples" begin
+        rng_egm = MersenneTwister(1234)
+        ζ_egm = exp.(0.16 .* randn(rng_egm, 10))   # return shock
+        η_egm = randn(rng_egm, 10)                 # income shock
+        pairs_egm = vec([(ζ, η) for ζ in ζ_egm, η in η_egm])
+        p_egm = EGMProblem(; β=0.9,
+                           u_prime=c -> c^(-1.5), u_prime_inv=v -> v^(-1 / 1.5),
+                           Γ=(s, z, ϵ) -> ϵ[1] * s + exp(0.5 + 0.2 * ϵ[2] + z),
+                           Γ_s=(s, z, ϵ) -> ϵ[1],
+                           s_grid=power_grid(40.0, 200),
+                           mc=MarkovChain([0.9 0.1; 0.1 0.9], [0.0, 0.5]),
+                           ϵ_vals=pairs_egm)
+        sol_egm = solve(p_egm)
+        @test sol_egm.converged
+        worst_egm, ineq_ok_egm = euler_check_egm(
+            p_egm, sol_egm, range(0.1, 30.0, length=300))
+        @test worst_egm < 1e-3
+        @test ineq_ok_egm
     end
 
 end  # @testset

@@ -37,6 +37,7 @@ tests = [
         "pivoting",
         "lcp_lemke",
         "interp",
+        "egm",
         "sampler",
         "util",
         "pomdps",
