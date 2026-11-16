@@ -146,6 +146,9 @@ export
 # interp
     interp, LinInterp,
 
+# egm
+    EGMProblem, EGMSolution, egm_step, power_grid, ifp_problem,
+
 # sampler
     MVNSampler,
 
@@ -184,6 +187,7 @@ include("pivoting.jl")
 include("lcp_lemke.jl")
 include("modeltools/utility.jl")
 include("modeltools/types.jl")
+include("egm.jl")
 
 function __init__()
     Base.Experimental.register_error_hint(MethodError) do io, exc, argtypes, kwargs
