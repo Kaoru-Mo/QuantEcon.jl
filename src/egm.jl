@@ -158,6 +158,18 @@ Grid on `[s_min, s_max]` with points concentrated near `s_min`, given by
 # Returns
 
 - `grid::Vector{Float64}`: The grid.
+
+# Examples
+
+```julia
+julia> power_grid(16.0, 5; k=2.0)
+5-element Vector{Float64}:
+  0.0
+  1.0
+  4.0
+  9.0
+ 16.0
+```
 """
 power_grid(s_max::Real, n::Integer; k::Real=3.0, s_min::Real=0.0) =
     [s_min + (s_max - s_min) * ((i - 1) / (n - 1))^k for i in 1:n]
@@ -232,6 +244,23 @@ minimum, until the largest change in consumption is below `tol`.
 # Returns
 
 - `sol::EGMSolution`: The solution.
+
+# Examples
+
+```julia
+julia> p = ifp_problem();
+
+julia> sol = solve(p);
+
+julia> sol.converged
+true
+
+julia> sol.num_iter
+79
+
+julia> round(sol(5.0, 1), digits=4)  # consumption at x = 5 in the first state
+1.1886
+```
 """
 function solve(p::EGMProblem; tol::Real=1e-5, max_iter::Integer=1000)
     _egm_check_feasible(p)
@@ -272,6 +301,20 @@ savings satisfy `s = x - c ≥ -b`, and `x′ = R * s + y(z′)`. In the timing
 # Returns
 
 - `p::EGMProblem`: The problem instance.
+
+# Examples
+
+```julia
+julia> mc = MarkovChain([0.6 0.4; 0.05 0.95], log.([0.5, 1.0]));
+
+julia> p = ifp_problem(; γ=1.0, mc=mc, b=1.0,
+                       s_grid=power_grid(16.0, 200; s_min=-1.0));
+
+julia> sol = solve(p);
+
+julia> round(sol(0.0, 1), digits=4)
+0.7934
+```
 """
 function ifp_problem(; R::Real=1.01, β::Real=0.96, γ::Real=1.5,
                      mc::MarkovChain=MarkovChain([0.6 0.4; 0.05 0.95],

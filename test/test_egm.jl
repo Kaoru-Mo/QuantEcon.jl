@@ -157,4 +157,73 @@
         @test ineq_ok_egm
     end
 
+    # The four lecture models, with the default parameters of the lectures
+    @testset "lecture models" begin
+        # Optimal Growth II (Julia lecture): log utility, f(k) = k^α
+        α_lec, β_lec = 0.65, 0.95
+        shocks_lec = exp.(0.1 .* randn(MersenneTwister(42), 250))
+        p_lec = EGMProblem(; β=β_lec,
+                           u_prime=c -> 1 / c, u_prime_inv=v -> 1 / v,
+                           Γ=(s, z, ϵ) -> s^α_lec * ϵ,
+                           Γ_s=(s, z, ϵ) -> α_lec * s^(α_lec - 1) * ϵ,
+                           s_grid=range(1e-6, 4.0, length=200),
+                           ϵ_vals=shocks_lec)
+        sol_lec = solve(p_lec)
+        @test sol_lec.converged
+        errs_lec = [abs(sol_lec(y, 1) - (1 - α_lec * β_lec) * y)
+                    for y in range(0.05, 4.0, length=100)]
+        @test maximum(errs_lec) < 1e-4
+
+        # IFP III (Python lecture): values from the NumPy reference
+        # implementation of the same algorithm
+        sol_lec = solve(ifp_problem(; s_grid=power_grid(16.0, 200)))
+        @test sol_lec.num_iter == 79
+        ref_lec = [0.15296134945366843 0.3388851397592786;
+                   0.2984629603484307 0.6310622198980002;
+                   1.1888533426812482 1.6349370696860877;
+                   1.8632328685900803 2.15840662211809]
+        for (i, a) in enumerate((0.5, 1.0, 5.0, 10.0)), j in 1:2
+            @test sol_lec(a, j) ≈ ref_lec[i, j] atol=1e-6
+        end
+
+        # Optimal Savings III (Julia lecture): log utility, income 0.5 and
+        # 1.0, with borrowing limits b = 0 and b = 1
+        mc_lec = MarkovChain([0.6 0.4; 0.05 0.95], log.([0.5, 1.0]))
+        ref0_lec = [0.0 0.0;
+                    0.8013443751427481 0.9676182760316792;
+                    1.409099042458198 1.4704807122997703;
+                    1.8016858317673554 1.8448767536477857]
+        ref1_lec = [0.7934444420888815 0.9594835204912067;
+                    1.0312290908317863 1.1448885448963744;
+                    1.4865142607860091 1.5415297549775842;
+                    1.856071234825249 1.8975335816424832]
+        for (b_lec, refb_lec) in ((0.0, ref0_lec), (1.0, ref1_lec))
+            sol_lec = solve(ifp_problem(; γ=1.0, mc=mc_lec, b=b_lec,
+                            s_grid=power_grid(16.0, 200; s_min=-b_lec)))
+            @test sol_lec.converged
+            for (i, x) in enumerate((0.0, 1.0, 5.0, 10.0)), j in 1:2
+                @test sol_lec(x, j) ≈ refb_lec[i, j] atol=1e-6
+            end
+        end
+
+        # IFP V (Python lecture): stochastic returns and income, with a
+        # smaller number of shock draws than the lecture
+        γ_lec, ar_lec, br_lec, ay_lec, by_lec = 1.5, 0.16, 0.0, 0.2, 0.5
+        rng_lec = MersenneTwister(1234)
+        η_lec, ζ_lec = randn(rng_lec, 20), randn(rng_lec, 20)
+        p_lec = EGMProblem(; β=0.96,
+            u_prime=c -> c^(-γ_lec), u_prime_inv=v -> v^(-1 / γ_lec),
+            Γ=(s, z, ϵ) -> exp(ar_lec * ϵ[1] + br_lec) * s + exp(ay_lec * ϵ[2] + z * by_lec),
+            Γ_s=(s, z, ϵ) -> exp(ar_lec * ϵ[1] + br_lec),
+            s_grid=power_grid(100.0, 200),
+            mc=MarkovChain([0.9 0.1; 0.1 0.9], [0.0, 1.0]),
+            ϵ_vals=vec([(ζ, η) for ζ in ζ_lec, η in η_lec]))
+        sol_lec = solve(p_lec)
+        @test sol_lec.converged
+        worst_lec, ineq_ok_lec = euler_check_egm(
+            p_lec, sol_lec, range(0.05, 60.0, length=200))
+        @test worst_lec < 5e-3
+        @test ineq_ok_lec
+    end
+
 end  # @testset
